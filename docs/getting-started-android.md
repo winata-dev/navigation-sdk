@@ -35,7 +35,7 @@ android {
 
 dependencies {
     // Core + UI. Use "navigation-core" instead if you build your own UI.
-    implementation("com.github.winata-dev.navigation-sdk:navigation-ui:1.0.0")
+    implementation("com.github.winata-dev.navigation-sdk:navigation-ui:1.0.1")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 }
 ```

@@ -6,9 +6,9 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-## [1.0.0] - 2026-11-20
+## [1.0.1] - 2026-11-20
 
-First release. **Android is verified and supported. The iOS code is included but has not been
+First release (1.0.0 was tagged but its JitPack build failed because of a `jitpack.yml` bug and was never published). **Android is verified and supported. The iOS code is included but has not been
 built or tested end to end yet; do not use it in production until a later release says so.**
 
 ### Added

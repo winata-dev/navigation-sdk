@@ -21,7 +21,7 @@ Or, in a `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/winata-dev/navigation-sdk", from: "1.0.0"),
+    .package(url: "https://github.com/winata-dev/navigation-sdk", from: "1.0.1"),
 ],
 targets: [
     .target(name: "MyApp", dependencies: [
