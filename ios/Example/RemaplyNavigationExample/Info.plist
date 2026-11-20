@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyLists-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Merged with the generated Info.plist. Apps integrating the SDK need these same keys. -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Your location is used to give turn-by-turn directions.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<!-- Keeps navigation and voice guidance running with the screen off. -->
+		<string>location</string>
+		<string>audio</string>
+	</array>
+</dict>
+</plist>

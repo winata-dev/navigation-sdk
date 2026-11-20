@@ -1,0 +1,9 @@
+# JitPack builds the Android libraries from a git tag the first time someone requests that version.
+# See docs/deploying.md. The iOS package needs no build service: SwiftPM reads the tag directly.
+jdk:
+  - openjdk17
+before_install:
+  - cd android && chmod +x gradlew
+install:
+  # The sample app is not published, so only the two libraries are built.
+  - cd android && ./gradlew :navigation-core:publishToMavenLocal :navigation-ui:publishToMavenLocal --no-configuration-cache --stacktrace

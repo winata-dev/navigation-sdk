@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Background navigation notification. Apps can override these by redefining them. -->
+    <string name="remaply_navigation_navigating">Navigating</string>
+    <string name="remaply_navigation_preparing">Starting navigation…</string>
+    <string name="remaply_navigation_arrived">You have arrived</string>
+    <string name="remaply_navigation_stop">Stop</string>
+    <!-- %1$s: distance, e.g. "12.3 km"; %2$s: duration, e.g. "25 min" -->
+    <string name="remaply_navigation_remaining">%1$s · %2$s remaining</string>
+</resources>

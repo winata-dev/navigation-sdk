@@ -1,0 +1,87 @@
+name: Release
+
+# Runs when a version tag such as 1.2.0 is pushed. See docs/deploying.md.
+on:
+  push:
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+"
+      - "[0-9]+.[0-9]+.[0-9]+-*"
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    name: Verify the tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag matches android/gradle.properties and CHANGELOG.md
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          GRADLE_VERSION=$(grep '^sdkVersion=' android/gradle.properties | cut -d= -f2)
+          if [ "$TAG" != "$GRADLE_VERSION" ]; then
+            echo "::error::Tag $TAG does not match sdkVersion=$GRADLE_VERSION in android/gradle.properties"
+            exit 1
+          fi
+          if ! grep -q "^## \[$TAG\]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## [$TAG]' section"
+            exit 1
+          fi
+
+  android:
+    name: Android build
+    needs: verify
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - run: ./gradlew :navigation-core:testReleaseUnitTest :sample:assembleRelease
+      - run: ./gradlew :navigation-core:publishToMavenLocal :navigation-ui:publishToMavenLocal --no-configuration-cache
+
+  ios:
+    name: iOS build (informational until iOS is verified)
+    needs: verify
+    runs-on: macos-15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          xcodebuild test -scheme RemaplyNavigation-Package \
+            -destination 'platform=iOS Simulator,name=iPhone 16' \
+            -skipMacroValidation -skipPackagePluginValidation
+
+  publish:
+    name: Publish
+    needs: [android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ask JitPack to build this version now, so the first user does not wait
+        run: |
+          URL="https://jitpack.io/com/github/${GITHUB_REPOSITORY_OWNER}/${GITHUB_REPOSITORY#*/}/navigation-core/${GITHUB_REF_NAME}/navigation-core-${GITHUB_REF_NAME}.pom"
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            if curl -sf -o /dev/null --max-time 600 "$URL"; then echo "JitPack build ready"; exit 0; fi
+            echo "JitPack not ready yet (attempt $i), retrying in 60 s"; sleep 60
+          done
+          echo "::error::JitPack did not build ${GITHUB_REF_NAME}. See https://jitpack.io/#${GITHUB_REPOSITORY}/${GITHUB_REF_NAME}"
+          exit 1
+      - name: Create the GitHub release from CHANGELOG.md
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          awk -v tag="${GITHUB_REF_NAME}" '
+            $0 ~ "^## \\[" tag "\\]" { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          PRERELEASE=""
+          case "${GITHUB_REF_NAME}" in *-*) PRERELEASE="--prerelease";; esac
+          gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" --notes-file notes.md $PRERELEASE

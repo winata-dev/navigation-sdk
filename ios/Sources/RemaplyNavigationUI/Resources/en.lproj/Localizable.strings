@@ -1,0 +1,10 @@
+/* Status banner while a new route is fetched. */
+"remaply.navigation.rerouting" = "Finding a new route…";
+/* Status banner while the user is off the route. */
+"remaply.navigation.offRoute" = "Off route";
+/* Status banner during a simulated drive. */
+"remaply.navigation.simulating" = "Simulated drive";
+/* Card shown when the destination is reached. */
+"remaply.navigation.arrived" = "You have arrived";
+/* Button on the arrival card that ends navigation. */
+"remaply.navigation.done" = "Done";

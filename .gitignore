@@ -1,0 +1,26 @@
+# macOS
+.DS_Store
+
+# Android / Gradle
+android/.gradle/
+android/.kotlin/
+android/build/
+android/*/build/
+android/local.properties
+android/.idea/
+*.iml
+captures/
+
+# Swift / Xcode
+.build/
+.swiftpm/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+ios/Example/RemaplyNavigationExample.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
+Package.resolved
+
+# Secrets
+.env
+*.keystore
+*.jks

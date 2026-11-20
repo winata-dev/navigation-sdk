@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Apps can translate or reword these by redefining them in their own resources. -->
+    <string name="remaply_navigation_rerouting">Finding a new route…</string>
+    <string name="remaply_navigation_off_route">Off route</string>
+    <string name="remaply_navigation_simulating">Simulated drive</string>
+    <string name="remaply_navigation_arrived_title">You have arrived</string>
+    <string name="remaply_navigation_done">Done</string>
+</resources>
