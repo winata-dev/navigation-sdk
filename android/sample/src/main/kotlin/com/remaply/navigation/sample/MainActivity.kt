@@ -44,25 +44,34 @@ import com.remaply.navigation.core.NavigationException
 import com.remaply.navigation.core.NavigationPermissions
 import com.remaply.navigation.core.NavigationState
 import com.remaply.navigation.core.NavigatorConfig
+import com.remaply.navigation.core.RemaplyCredentials
 import com.remaply.navigation.core.RemaplyNavigator
 import com.remaply.navigation.core.RouteProvider
 import com.remaply.navigation.core.UserLocation
 import com.remaply.navigation.core.Coordinate
 import com.remaply.navigation.core.ValhallaRouteProvider
 import com.remaply.navigation.core.Waypoint
+import com.remaply.navigation.ui.MapStyle
 import com.remaply.navigation.ui.RemaplyNavigationView
 import kotlinx.coroutines.launch
 
 /** Keeps the navigator across rotations, and closes it with the screen. */
 class SampleViewModel(application: Application) : AndroidViewModel(application) {
+    /** Null unless sample.remaplyApiKey is set. Used for routes and for the map's Remaply tiles. */
+    val credentials: RemaplyCredentials? =
+        BuildConfig.REMAPLY_API_KEY.takeIf { it.isNotBlank() }?.let { RemaplyCredentials(application, it) }
+
     private val routeProvider: RouteProvider =
-        if (BuildConfig.REMAPLY_API_KEY.isNotBlank()) {
-            ValhallaRouteProvider.remaply(application, apiKey = BuildConfig.REMAPLY_API_KEY)
+        if (credentials != null) {
+            ValhallaRouteProvider.remaply(credentials)
         } else {
             ValhallaRouteProvider(BuildConfig.VALHALLA_URL)
         }
 
     val navigator = RemaplyNavigator(application, NavigatorConfig(routeProvider = routeProvider))
+
+    /** The Remaply map with a key, else sample.styleUrl (OpenFreeMap by default). */
+    val mapStyle: MapStyle = credentials?.let { MapStyle.remaply(it) } ?: MapStyle(BuildConfig.STYLE_URL)
 
     var error by mutableStateOf<String?>(null)
         private set
@@ -120,7 +129,7 @@ class MainActivity : ComponentActivity() {
                 if (state.status == NavigationState.Status.NAVIGATING || state.status == NavigationState.Status.ARRIVED) {
                     RemaplyNavigationView(
                         navigator = model.navigator,
-                        styleUrl = BuildConfig.STYLE_URL,
+                        style = model.mapStyle,
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else {
@@ -154,7 +163,7 @@ private fun TripForm(model: SampleViewModel, routing: Boolean) {
         ) {
             Text("Remaply Navigation SDK", style = MaterialTheme.typography.headlineSmall)
             Text(
-                "Routes: " + if (BuildConfig.REMAPLY_API_KEY.isNotBlank()) "Remaply API" else BuildConfig.VALHALLA_URL,
+                "Routes and map: " + if (BuildConfig.REMAPLY_API_KEY.isNotBlank()) "Remaply API" else "${BuildConfig.VALHALLA_URL}, ${BuildConfig.STYLE_URL}",
                 style = MaterialTheme.typography.bodySmall,
             )
 

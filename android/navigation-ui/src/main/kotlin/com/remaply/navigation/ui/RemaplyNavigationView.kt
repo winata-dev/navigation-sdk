@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.remaply.navigation.core.NavigationState
 import com.remaply.navigation.core.RemaplyNavigator
+import com.remaply.navigation.ui.internal.MapRequestHeaders
 import com.remaply.navigation.ui.internal.NavigatorViewModel
 import com.remaply.navigation.ui.internal.ThemeAdapter
 import com.stadiamaps.ferrostar.composeui.config.NavigationViewComponentBuilder
@@ -38,17 +39,17 @@ import org.maplibre.compose.util.MaplibreComposable
  * maneuver, distance and time remaining, speed limit, and mute, zoom, recenter and exit buttons.
  * Adapts to portrait and landscape.
  *
- * Show it while [navigator] is navigating (it also works idle, as a plain map):
+ * Show it while [navigator] is navigating (it also works idle, as a plain map). With the Remaply
+ * API, the same credentials give routes and the whole map:
  *
  * ```
  * RemaplyNavigationView(
  *     navigator = navigator,
- *     styleUrl = "https://tiles.example.com/styles/streets.json",
+ *     style = MapStyle.remaply(credentials),
  * )
  * ```
  *
- * @param styleUrl a MapLibre style JSON URL. Must include the attribution your tiles require
- *   (e.g. "© OpenStreetMap contributors").
+ * @param style the map: [MapStyle.remaply], or any MapLibre style with `MapStyle(url)`.
  * @param onExit called when the user taps the exit button. Defaults to stopping navigation.
  *   Pass null to hide the button.
  * @param overlay your own UI on top of the map, e.g. a "report" button. Receives the current state.
@@ -57,13 +58,17 @@ import org.maplibre.compose.util.MaplibreComposable
 @Composable
 public fun RemaplyNavigationView(
     navigator: RemaplyNavigator,
-    styleUrl: String,
+    style: MapStyle,
     modifier: Modifier = Modifier,
     options: NavigationViewOptions = NavigationViewOptions(),
     onExit: (() -> Unit)? = { navigator.stopNavigation() },
     overlay: @Composable BoxScope.(state: NavigationState) -> Unit = {},
     mapContent: @Composable @MaplibreComposable (state: NavigationState) -> Unit = {},
 ) {
+    val mapAuthentication = style.authentication
+    // During composition, so the headers are in place before the map requests its style.
+    remember(mapAuthentication) { mapAuthentication?.let(MapRequestHeaders::register) }
+
     val state by navigator.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val viewModel = remember(navigator, scope) { NavigatorViewModel(navigator, scope) }
@@ -100,13 +105,43 @@ public fun RemaplyNavigationView(
 
     DynamicallyOrientingNavigationView(
         modifier = modifier,
-        baseStyle = BaseStyle.Uri(styleUrl),
+        baseStyle = BaseStyle.Uri(style.url),
         viewModel = viewModel,
         theme = theme,
         config = config,
         views = views,
         onTapExit = onExit,
         mapContent = { mapContent(state) },
+    )
+}
+
+/**
+ * [RemaplyNavigationView] with a style URL and, optionally, headers for its servers. The same as
+ * passing `style = MapStyle(styleUrl, mapAuthentication)`.
+ *
+ * @param styleUrl a MapLibre style JSON URL. Must include the attribution your tiles require
+ *   (e.g. "© OpenStreetMap contributors").
+ * @param mapAuthentication headers for map servers that need an API key.
+ */
+@Composable
+public fun RemaplyNavigationView(
+    navigator: RemaplyNavigator,
+    styleUrl: String,
+    modifier: Modifier = Modifier,
+    options: NavigationViewOptions = NavigationViewOptions(),
+    mapAuthentication: MapAuthentication? = null,
+    onExit: (() -> Unit)? = { navigator.stopNavigation() },
+    overlay: @Composable BoxScope.(state: NavigationState) -> Unit = {},
+    mapContent: @Composable @MaplibreComposable (state: NavigationState) -> Unit = {},
+) {
+    RemaplyNavigationView(
+        navigator = navigator,
+        style = remember(styleUrl, mapAuthentication) { MapStyle(styleUrl, mapAuthentication) },
+        modifier = modifier,
+        options = options,
+        onExit = onExit,
+        overlay = overlay,
+        mapContent = mapContent,
     )
 }
 

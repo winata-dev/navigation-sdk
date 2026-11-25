@@ -27,7 +27,9 @@ internal object AppIdentity {
         val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             val info = pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
             val signingInfo = info.signingInfo ?: return null
-            if (signingInfo.hasMultipleSigners()) signingInfo.apkContentsSigners else signingInfo.signingCertificateHistory
+            // The certificate the APK is signed with now. signingCertificateHistory starts with the
+            // original certificate, so after a key rotation it would name the old one.
+            signingInfo.apkContentsSigners
         } else {
             pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNATURES).signatures
         }

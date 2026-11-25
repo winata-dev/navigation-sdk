@@ -11,15 +11,16 @@ import UIKit
 /// maneuver, distance and time remaining, speed limit, and mute, zoom, recenter and exit buttons.
 /// Adapts to portrait and landscape.
 ///
+/// With the Remaply API, the same credentials give routes and the whole map:
+///
 /// ```swift
-/// RemaplyNavigationView(
-///     navigator: navigator,
-///     styleURL: URL(string: "https://tiles.example.com/styles/streets.json")!
-/// )
+/// RemaplyNavigationView(navigator: navigator, style: .remaply(credentials))
 /// ```
+///
+/// Any other MapLibre style works too: `style: MapStyle(url: styleURL)`.
 public struct RemaplyNavigationView<Overlay: View>: View {
     @ObservedObject private var navigator: RemaplyNavigator
-    private let styleURL: URL
+    private let style: MapStyle
     private let options: NavigationViewOptions
     private let onExit: (() -> Void)?
     private let overlay: (RemaplyNavigationCore.NavigationState) -> Overlay
@@ -28,32 +29,59 @@ public struct RemaplyNavigationView<Overlay: View>: View {
     @State private var camera: MapViewCamera = .automotiveNavigation()
 
     /// - Parameters:
-    ///   - styleURL: A MapLibre style JSON URL. Must include the attribution your tiles require
-    ///     (e.g. "© OpenStreetMap contributors").
+    ///   - style: The map: ``MapStyle/remaply(_:styleID:)``, or any MapLibre style with
+    ///     `MapStyle(url:)`.
     ///   - onExit: Called when the user taps the exit button. Defaults to stopping navigation.
     ///   - overlay: Your own UI on top of the map. Receives the current state.
     ///   - mapContent: Your own MapLibre layers, drawn above the base map.
     public init(
         navigator: RemaplyNavigator,
-        styleURL: URL,
+        style: MapStyle,
         options: NavigationViewOptions = NavigationViewOptions(),
         onExit: (() -> Void)? = nil,
         @ViewBuilder overlay: @escaping (RemaplyNavigationCore.NavigationState) -> Overlay,
         @MapViewContentBuilder mapContent: () -> [StyleLayerDefinition] = { [] }
     ) {
+        // Here rather than in onAppear, so the headers are in place before the map requests its style.
+        if let authentication = style.authentication { MapRequestHeaders.shared.register(authentication) }
         self.navigator = navigator
-        self.styleURL = styleURL
+        self.style = style
         self.options = options
         self.onExit = onExit
         self.overlay = overlay
         self.mapContent = mapContent()
     }
 
+    /// The same as passing `style: MapStyle(url: styleURL, authentication: mapAuthentication)`.
+    ///
+    /// - Parameters:
+    ///   - styleURL: A MapLibre style JSON URL. Must include the attribution your tiles require
+    ///     (e.g. "© OpenStreetMap contributors").
+    ///   - mapAuthentication: Headers for map servers that need an API key.
+    public init(
+        navigator: RemaplyNavigator,
+        styleURL: URL,
+        options: NavigationViewOptions = NavigationViewOptions(),
+        mapAuthentication: MapAuthentication? = nil,
+        onExit: (() -> Void)? = nil,
+        @ViewBuilder overlay: @escaping (RemaplyNavigationCore.NavigationState) -> Overlay,
+        @MapViewContentBuilder mapContent: () -> [StyleLayerDefinition] = { [] }
+    ) {
+        self.init(
+            navigator: navigator,
+            style: MapStyle(url: styleURL, authentication: mapAuthentication),
+            options: options,
+            onExit: onExit,
+            overlay: overlay,
+            mapContent: mapContent
+        )
+    }
+
     public var body: some View {
         let state = navigator.state
 
         DynamicallyOrientingNavigationView(
-            styleURL: styleURL,
+            styleURL: style.url,
             camera: $camera,
             navigationState: navigator.engineState,
             isMuted: state.isMuted,
@@ -96,12 +124,38 @@ public struct RemaplyNavigationView<Overlay: View>: View {
 public extension RemaplyNavigationView where Overlay == EmptyView {
     init(
         navigator: RemaplyNavigator,
-        styleURL: URL,
+        style: MapStyle,
         options: NavigationViewOptions = NavigationViewOptions(),
         onExit: (() -> Void)? = nil,
         @MapViewContentBuilder mapContent: () -> [StyleLayerDefinition] = { [] }
     ) {
-        self.init(navigator: navigator, styleURL: styleURL, options: options, onExit: onExit, overlay: { _ in EmptyView() }, mapContent: mapContent)
+        self.init(
+            navigator: navigator,
+            style: style,
+            options: options,
+            onExit: onExit,
+            overlay: { _ in EmptyView() },
+            mapContent: mapContent
+        )
+    }
+
+    init(
+        navigator: RemaplyNavigator,
+        styleURL: URL,
+        options: NavigationViewOptions = NavigationViewOptions(),
+        mapAuthentication: MapAuthentication? = nil,
+        onExit: (() -> Void)? = nil,
+        @MapViewContentBuilder mapContent: () -> [StyleLayerDefinition] = { [] }
+    ) {
+        self.init(
+            navigator: navigator,
+            styleURL: styleURL,
+            options: options,
+            mapAuthentication: mapAuthentication,
+            onExit: onExit,
+            overlay: { _ in EmptyView() },
+            mapContent: mapContent
+        )
     }
 }
 

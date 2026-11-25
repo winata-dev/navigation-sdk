@@ -1,9 +1,9 @@
 package com.remaply.navigation.core
 
 import android.content.Context
-import com.remaply.navigation.core.internal.AppIdentity
 import com.remaply.navigation.core.internal.HttpRouteFetcher
 import com.remaply.navigation.core.internal.Json
+import com.remaply.navigation.core.internal.RemaplyRouteFallback
 import okhttp3.OkHttpClient
 import uniffi.ferrostar.GraphHopperVoiceUnits
 import uniffi.ferrostar.WellKnownRouteProvider
@@ -45,17 +45,18 @@ public fun interface RouteProvider {
  * @param costing the Valhalla costing for each profile. Defaults to [defaultCosting].
  * @param httpClient to share connection pools, add interceptors or change timeouts.
  */
-public class ValhallaRouteProvider @JvmOverloads constructor(
-    endpointUrl: String,
-    headers: Map<String, String> = emptyMap(),
-    options: Map<String, Any?> = emptyMap(),
-    costing: (TravelProfile) -> String = ::defaultCosting,
-    httpClient: OkHttpClient? = null,
+public class ValhallaRouteProvider private constructor(
+    private val fetcher: HttpRouteFetcher,
 ) : RouteProvider {
 
-    private val fetcher = HttpRouteFetcher(httpClient, headers) { profile ->
-        WellKnownRouteProvider.Valhalla(endpointUrl, costing(profile), Json.encodeOrNull(options))
-    }
+    @JvmOverloads
+    public constructor(
+        endpointUrl: String,
+        headers: Map<String, String> = emptyMap(),
+        options: Map<String, Any?> = emptyMap(),
+        costing: (TravelProfile) -> String = ::defaultCosting,
+        httpClient: OkHttpClient? = null,
+    ) : this(fetcher(endpointUrl, headers, options, costing, httpClient, missingApiKey = false))
 
     override suspend fun getRoutes(request: RouteRequest): List<NavigationRoute> = fetcher.fetch(request)
 
@@ -71,28 +72,61 @@ public class ValhallaRouteProvider @JvmOverloads constructor(
         }
 
         /**
-         * Routes from the Remaply Platform API (`POST /v1/navigation/route`).
+         * Routes from the Remaply Platform API (`POST /v1/navigation/route`), with the key and
+         * app identity from [credentials].
          *
-         * Sends the key in `X-Api-Key`, plus this app's package name and signing certificate,
-         * so keys restricted to your Android app work.
+         * If the server has no navigation endpoint (404 `not_found`), routes come from
+         * `GET /v1/route` instead, converted on the device, and the navigation endpoint is tried
+         * again every 15 minutes. Those routes have English instructions written from the route's
+         * steps, no speed limits, and rerouting does not know the direction of travel. Pass the same credentials to the map
+         * (`MapStyle.remaply` in navigation-ui) for the Remaply map.
          *
-         * @param apiKey a key with the `routing` scope.
-         * @param baseUrl the API's base URL, without a trailing slash.
+         * If the key is blank, every request fails with [NavigationException.Unauthorized]
+         * ([NavigationException.Unauthorized.Reason.MISSING_API_KEY]) without reaching the server.
+         */
+        @JvmStatic
+        @JvmOverloads
+        public fun remaply(
+            credentials: RemaplyCredentials,
+            httpClient: OkHttpClient? = null,
+        ): ValhallaRouteProvider = ValhallaRouteProvider(
+            fetcher(
+                endpointUrl = credentials.baseUrl + "/v1/navigation/route",
+                headers = credentials.requestHeaders,
+                options = emptyMap(),
+                costing = ::defaultCosting,
+                httpClient = httpClient,
+                missingApiKey = !credentials.hasApiKey,
+                fallback = RemaplyRouteFallback(credentials.baseUrl),
+            ),
+        )
+
+        /**
+         * Routes from the Remaply Platform API. Shorthand for
+         * `remaply(RemaplyCredentials(context, apiKey, baseUrl), httpClient)`.
+         *
+         * @param apiKey a publishable key (`rmp_pk_...`) with the `routing` scope.
+         * @param baseUrl the API's base URL.
          */
         @JvmStatic
         @JvmOverloads
         public fun remaply(
             context: Context,
             apiKey: String,
-            baseUrl: String = "https://api.remaply.com",
+            baseUrl: String = RemaplyCredentials.DEFAULT_BASE_URL,
             httpClient: OkHttpClient? = null,
-        ): ValhallaRouteProvider {
-            require(apiKey.isNotBlank()) { "apiKey must not be blank" }
-            return ValhallaRouteProvider(
-                endpointUrl = baseUrl.trimEnd('/') + "/v1/navigation/route",
-                headers = mapOf("X-Api-Key" to apiKey) + AppIdentity.headers(context),
-                httpClient = httpClient,
-            )
+        ): ValhallaRouteProvider = remaply(RemaplyCredentials(context, apiKey, baseUrl), httpClient)
+
+        private fun fetcher(
+            endpointUrl: String,
+            headers: Map<String, String>,
+            options: Map<String, Any?>,
+            costing: (TravelProfile) -> String,
+            httpClient: OkHttpClient?,
+            missingApiKey: Boolean,
+            fallback: RemaplyRouteFallback? = null,
+        ) = HttpRouteFetcher(httpClient, headers, missingApiKey, fallback) { profile ->
+            WellKnownRouteProvider.Valhalla(endpointUrl, costing(profile), Json.encodeOrNull(options))
         }
     }
 }

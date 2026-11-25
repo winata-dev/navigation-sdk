@@ -49,18 +49,67 @@ and voice instructions.
 
 ### Remaply API
 
+One key covers navigation and the map. Create the credentials once and pass them to both:
+
 ```kotlin
-ValhallaRouteProvider.remaply(context, apiKey = "rmp_pk_...")
+val credentials = RemaplyCredentials(context, apiKey = BuildConfig.REMAPLY_API_KEY)
+NavigatorConfig(routeProvider = ValhallaRouteProvider.remaply(credentials))
+RemaplyNavigationView(navigator, style = MapStyle.remaply(credentials))
 ```
 
 ```swift
-ValhallaRouteProvider.remaply(apiKey: "rmp_pk_...")
+let credentials = RemaplyCredentials(apiKey: remaplyAPIKey)
+NavigatorConfig(routeProvider: ValhallaRouteProvider.remaply(credentials))
+RemaplyNavigationView(navigator: navigator, style: .remaply(credentials))
 ```
 
-This calls `POST /v1/navigation/route` with the key in `X-Api-Key`. It also sends your app's
-identity (Android package name and signing-certificate SHA-1, iOS bundle identifier), so keys
-restricted to your app work. Use a **publishable** key (`rmp_pk_`); never ship a secret key in
-an app.
+`ValhallaRouteProvider.remaply(context, apiKey = ...)` / `.remaply(apiKey:)` still work, as a
+shorthand for routes only.
+
+What the SDK calls, all on `https://api.remaply.com` (or `baseUrl` / `baseURL`):
+
+| Endpoint | Called by | For |
+|---|---|---|
+| `POST /v1/navigation/route` | the route provider | routes and reroutes, in OSRM format with banner and voice instructions |
+| `GET /v1/route` | the route provider, only when the server has no `/v1/navigation/route` | routes and reroutes, converted on the device (see below) |
+| `GET /v1/styles/{id}.json` | the map | the style: `default`, or your organization's style id (`MapStyle.remaply(credentials, styleId)`) |
+| `GET /v1/tiles/{tileset}.json` | the map, from the style | TileJSON |
+| `GET /v1/tiles/{tileset}/{z}/{x}/{y}.mvt` | the map, from the TileJSON | vector tiles |
+| `GET /v1/sprites/{name}` | the map, from the style | icons |
+
+Every request carries the key in `X-Api-Key`, and your app's identity (Android package name
+and signing-certificate SHA-1, iOS bundle identifier), so keys restricted to your app work.
+The map's requests get these headers only when they go to the API's host.
+
+#### When the server has no navigation endpoint
+
+If `POST /v1/navigation/route` answers 404 `not_found` (the endpoint is not deployed on that
+server), the SDK gets routes from `GET /v1/route?steps=true` instead, and tries the navigation
+endpoint again every 15 minutes. A 404 `route_not_found` is a missing route, not a missing
+endpoint, and is reported as `NoRouteFound` / `.noRouteFound` as usual.
+
+`/v1/route` answers in Remaply's own format, so the SDK converts it on the device. Navigation
+works, with these differences:
+
+- Banner and voice instructions are written by the SDK from the route's steps, in English
+  ("In 500 meters, turn right onto Milverton Road.").
+- No speed limits, and no lane information.
+- Rerouting does not send the direction of travel, so a new route may begin with a U-turn.
+- Via points (`Waypoint.Kind.VIA` / `.via`) are treated as stops.
+
+About the key:
+
+- Use a **publishable** key (`rmp_pk_`); never ship a secret key in an app. A publishable key
+  is visible to anyone who unpacks the app. What stops other apps from using it is the key's
+  restrictions in Remaply Console, so restrict it to your app.
+- The key must be allowed to use routing, and styles and tiles for the Remaply map.
+- Keep it out of git: inject it at build time, e.g. from `local.properties` or a CI secret into
+  `BuildConfig` on Android, and from an `.xcconfig` into `Info.plist` on iOS.
+- A blank key does not crash. Route requests fail with `Unauthorized` / `.unauthorized` and
+  the reason `MISSING_API_KEY` / `.missingAPIKey`, so a build without a key shows an error.
+- **Android:** register every certificate that signs the app: the debug certificate, and for
+  Play Store builds the **app signing key** from Play Console (Setup → App signing), not your
+  upload key. Play re-signs the app, so the upload key's SHA-1 never reaches the server.
 
 ### GraphHopper
 

@@ -26,10 +26,47 @@ final class HTTPErrorTests: XCTestCase {
     }
 
     func testOtherErrorsKeepTheBody() {
-        let error = HTTPRouteFetcher.httpError(statusCode: 401, body: "bad key")
+        let error = HTTPRouteFetcher.httpError(statusCode: 429, body: "slow down")
         guard case let .http(code, body) = error else { return XCTFail("got \(error)") }
-        XCTAssertEqual(code, 401)
-        XCTAssertEqual(body, "bad key")
+        XCTAssertEqual(code, 429)
+        XCTAssertEqual(body, "slow down")
+    }
+
+    func testRemaplyCredentialErrorsNameTheReason() {
+        func reason(_ status: Int, _ code: String) -> NavigationError.AuthFailure? {
+            let error = HTTPRouteFetcher.httpError(statusCode: status, body: #"{"error":{"code":"\#(code)","message":"x"}}"#)
+            guard case let .unauthorized(reason, _, _) = error else { return nil }
+            return reason
+        }
+        XCTAssertEqual(reason(401, "invalid_api_key"), .invalidAPIKey)
+        XCTAssertEqual(reason(403, "scope_not_allowed"), .scopeNotAllowed)
+        XCTAssertEqual(reason(403, "api_key_restricted"), .apiKeyRestricted)
+        XCTAssertEqual(reason(401, "something_else"), .unknown)
+    }
+
+    func testAMissingKeyFailsWithoutARequest() async {
+        let provider = ValhallaRouteProvider.remaply(apiKey: "  ")
+        let request = RouteRequest(
+            origin: UserLocation(coordinate: Coordinate(latitude: -18.14, longitude: 178.44), horizontalAccuracy: 5),
+            waypoints: [Waypoint(latitude: -18.12, longitude: 178.45)],
+            profile: .car,
+            isReroute: false
+        )
+        do {
+            _ = try await provider.routes(for: request)
+            XCTFail("expected an error")
+        } catch let NavigationError.unauthorized(reason, statusCode, _) {
+            XCTAssertEqual(reason, .missingAPIKey)
+            XCTAssertNil(statusCode)
+        } catch {
+            XCTFail("got \(error)")
+        }
+    }
+
+    func testCredentialsDoNotPrintTheKey() {
+        let credentials = RemaplyCredentials(apiKey: " rmp_pk_live_0123456789abcdef ")
+        XCTAssertEqual(credentials.apiKey, "rmp_pk_live_0123456789abcdef")
+        XCTAssertFalse(credentials.description.contains("0123456789abcdef"))
     }
 }
 
@@ -70,6 +107,16 @@ final class MappingTests: XCTestCase {
 
     func testRejectsInvalidRoutes() {
         XCTAssertThrowsError(try NavigationRoute.fromOSRM(routeJSON: Data("{}".utf8), waypoints: []))
+    }
+
+    func testStyleURLsPointAtTheStylesEndpoint() {
+        let credentials = RemaplyCredentials(apiKey: "k")
+        XCTAssertEqual(credentials.styleURL().absoluteString, "https://api.remaply.com/v1/styles/default.json")
+        XCTAssertEqual(credentials.styleURL(styleID: " abc-123 ").absoluteString, "https://api.remaply.com/v1/styles/abc-123.json")
+        XCTAssertEqual(credentials.styleURL(styleID: "my style/x").absoluteString, "https://api.remaply.com/v1/styles/my%20style%2Fx.json")
+
+        let staging = RemaplyCredentials(apiKey: "k", baseURL: URL(string: "https://staging.test/")!)
+        XCTAssertEqual(staging.styleURL().absoluteString, "https://staging.test/v1/styles/default.json")
     }
 }
 

@@ -4,8 +4,8 @@ This guide adds turn-by-turn navigation to an existing Jetpack Compose app. It t
 minutes.
 
 **You need:** Android Studio, an app with `minSdk` 25 or higher using Jetpack Compose, a routing
-server URL (see [Configuration › Routing servers](configuration.md#routing-servers)), and a
-MapLibre style URL.
+server URL (see [Configuration › Routing servers](configuration.md#routing-servers)) and a
+MapLibre style URL, or just a Remaply API key, which covers both.
 
 ## 1. Add the JitPack repository
 
@@ -67,12 +67,15 @@ Create one `RemaplyNavigator` and keep it for as long as the navigation screen l
 
 ```kotlin
 class NavigationViewModel(application: Application) : AndroidViewModel(application) {
+    // Only with the Remaply API.
+    // val credentials = RemaplyCredentials(application, apiKey = BuildConfig.REMAPLY_API_KEY)
+
     val navigator = RemaplyNavigator(
         application,
         NavigatorConfig(
             routeProvider = ValhallaRouteProvider("https://valhalla.example.com/route"),
-            // Or, with the Remaply API:
-            // routeProvider = ValhallaRouteProvider.remaply(application, apiKey = "rmp_pk_..."),
+            // Or, with the Remaply API (pass the same credentials to the map, see step 5):
+            // routeProvider = ValhallaRouteProvider.remaply(credentials),
         ),
     )
 
@@ -102,7 +105,9 @@ fun NavigationScreen(model: NavigationViewModel) {
     if (state.status == NavigationState.Status.NAVIGATING || state.status == NavigationState.Status.ARRIVED) {
         RemaplyNavigationView(
             navigator = model.navigator,
-            styleUrl = "https://tiles.openfreemap.org/styles/liberty",
+            style = MapStyle("https://tiles.openfreemap.org/styles/liberty"),
+            // Or the Remaply map, with the key on the style, tiles and sprites:
+            // style = MapStyle.remaply(model.credentials),
             modifier = Modifier.fillMaxSize(),
         )
     } else {

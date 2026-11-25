@@ -76,7 +76,8 @@ Methods that can fail throw `NavigationException` (Android) / `NavigationError` 
 | Case | Typical cause | What to show |
 |---|---|---|
 | `NoRouteFound` | Points not connected by road (islands without ferries, off-road points) | "No route to this place" |
-| `Http(statusCode, body)` | 401/403 wrong or restricted API key; 422 invalid points; 429 rate limit | Log the body; it explains the error |
+| `Unauthorized(reason, statusCode, body)` | 401/403, or no key configured. `reason`: missing key, invalid key, missing scope, key restricted to another app, or unknown | Log it; it is a configuration problem, not the user's |
+| `Http(statusCode, body)` | 422 invalid points; 429 rate limit; 5xx | Log the body; it explains the error |
 | `Network` | No connection, timeout | "Check your connection" |
 | `PermissionDenied` | Location not granted | Ask for permission, or explain in settings |
 | `LocationUnavailable` | No GPS fix within 15 s (indoors, location off) | "Waiting for GPS…" |

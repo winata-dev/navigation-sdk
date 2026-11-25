@@ -24,7 +24,7 @@ jobs:
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
       - name: Unit tests
-        run: ./gradlew :navigation-core:testReleaseUnitTest
+        run: ./gradlew :navigation-core:testReleaseUnitTest :navigation-ui:testReleaseUnitTest
       - name: Build libraries and sample (release build runs R8 with the consumer rules)
         run: ./gradlew :navigation-core:assembleRelease :navigation-ui:assembleRelease :sample:assembleRelease
       - name: Publish locally, as JitPack does

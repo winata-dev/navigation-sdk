@@ -53,6 +53,11 @@ dependencies {
     implementation(libs.ferrostar.core)
     implementation(libs.ferrostar.ui.compose)
     implementation(libs.ferrostar.ui.maplibre)
+    // MapAuthentication: adds headers to MapLibre's own requests.
+    implementation(libs.maplibre.android)
+    implementation(libs.okhttp)
+
+    testImplementation(libs.junit)
 }
 
 publishing {

@@ -4,13 +4,74 @@
 
 ## Map style
 
-`styleUrl` / `styleURL` takes any [MapLibre style](https://maplibre.org/maplibre-style-spec/).
-Free options include [OpenFreeMap](https://openfreemap.org) (`https://tiles.openfreemap.org/styles/liberty`,
+`style` takes a `MapStyle`: the Remaply map, or any
+[MapLibre style](https://maplibre.org/maplibre-style-spec/) by URL, with `MapStyle(url)` /
+`MapStyle(url:)`. (`styleUrl` / `styleURL` still work, and mean the same.) Free options include [OpenFreeMap](https://openfreemap.org) (`https://tiles.openfreemap.org/styles/liberty`,
 no key) and [Protomaps](https://protomaps.com), which you can self-host from one file. Hosted
 options with free tiers include MapTiler and Stadia Maps. The style must credit its data, e.g.
 "© OpenStreetMap contributors"; the view shows MapLibre's attribution button for that.
 
 Use a style with good road contrast and road labels. Navigation styles usually dim POIs.
+
+### The Remaply map
+
+Pass the same credentials as the route provider. The key must be allowed to use styles and tiles:
+
+```kotlin
+// Android
+RemaplyNavigationView(navigator = navigator, style = MapStyle.remaply(credentials))
+// Your organization's style from Map Studio:
+RemaplyNavigationView(navigator = navigator, style = MapStyle.remaply(credentials, styleId = "your-style-id"))
+```
+
+```swift
+// iOS
+RemaplyNavigationView(navigator: navigator, style: .remaply(credentials))
+RemaplyNavigationView(navigator: navigator, style: .remaply(credentials, styleID: "your-style-id"))
+```
+
+MapLibre loads the style (`/v1/styles/{id}.json`), then the TileJSON, tiles and sprites the style
+names (`/v1/tiles/...`, `/v1/sprites/...`). The SDK adds the key and app identity headers to every
+one of those requests. For a MapLibre map of your own, `credentials.styleUrl()` /
+`credentials.styleURL()` gives the style's URL.
+
+### Map servers that need a key
+
+To add a key to another style's requests, give the `MapStyle` a `MapAuthentication`:
+
+```kotlin
+// Android
+MapStyle(
+    url = "https://tiles.example.com/styles/streets.json",
+    authentication = MapAuthentication(hosts = setOf("tiles.example.com"), headers = mapOf("Authorization" to "Bearer ...")),
+)
+```
+
+```swift
+// iOS
+MapStyle(
+    url: URL(string: "https://tiles.example.com/styles/streets.json")!,
+    authentication: MapAuthentication(hosts: ["tiles.example.com"], headers: ["Authorization": "Bearer ..."])
+)
+```
+
+For a style of your own that uses Remaply tiles or sprites, use
+`MapAuthentication.remaply(credentials)`.
+
+The headers go **only to the named hosts** (for Remaply, the API's host). Other sources in the
+same style, e.g. an OpenFreeMap base map or a font server, never see the key.
+
+Headers rather than `?key=` in the style, because a key restricted to your app is checked
+against the app identity headers, which MapLibre would not send otherwise.
+
+MapLibre's network settings are shared by the whole app:
+
+- Once a view has used a `MapAuthentication` (`MapStyle.remaply` includes one), its headers keep being added to requests to those
+  hosts for the rest of the process, by any MapLibre map in the app.
+- **Android:** it replaces the client set with `HttpRequestUtil.setOkHttpClient`. If your app
+  sets its own, do not also use a `MapAuthentication`.
+- **iOS:** it becomes the delegate of `MLNNetworkConfiguration.sharedManager`. A delegate your
+  app set before is kept and still called; one set after replaces it.
 
 ## Options
 
@@ -18,7 +79,7 @@ Use a style with good road contrast and road labels. Navigation styles usually d
 // Android
 RemaplyNavigationView(
     navigator = navigator,
-    styleUrl = styleUrl,
+    style = style,
     options = NavigationViewOptions(
         showMuteButton = true,
         showZoomButtons = false,
@@ -35,7 +96,7 @@ RemaplyNavigationView(
 // iOS
 RemaplyNavigationView(
     navigator: navigator,
-    styleURL: styleURL,
+    style: style,
     options: NavigationViewOptions(speedLimitSignage: .viennaConvention, showStatusBanner: true, keepScreenOn: true),
     onExit: { dismiss() }
 )
@@ -71,7 +132,7 @@ options: NavigationViewOptions(theme: NavigationTheme(
 `overlay` draws above the map and the navigation UI and receives the current state:
 
 ```kotlin
-RemaplyNavigationView(navigator, styleUrl, overlay = { state ->
+RemaplyNavigationView(navigator, style, overlay = { state ->
     if (state.isNavigating) {
         FloatingActionButton(
             onClick = { reportIncident(state.location) },
@@ -82,7 +143,7 @@ RemaplyNavigationView(navigator, styleUrl, overlay = { state ->
 ```
 
 ```swift
-RemaplyNavigationView(navigator: navigator, styleURL: styleURL) { state in
+RemaplyNavigationView(navigator: navigator, style: style) { state in
     if state.isNavigating {
         Button("Report") { report(state.location) }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
@@ -97,14 +158,14 @@ MapLibre APIs directly: [maplibre-compose](https://github.com/maplibre/maplibre-
 Android and [swiftui-dsl](https://github.com/maplibre/swiftui-dsl) on iOS.
 
 ```kotlin
-RemaplyNavigationView(navigator, styleUrl, mapContent = { state ->
+RemaplyNavigationView(navigator, style, mapContent = { state ->
     val stops = rememberGeoJsonSource(GeoJsonData.Features(stopsFeatureCollection))
     CircleLayer(id = "stops", source = stops, color = const(Color.Red), radius = const(8.dp))
 })
 ```
 
 ```swift
-RemaplyNavigationView(navigator: navigator, styleURL: styleURL) {
+RemaplyNavigationView(navigator: navigator, style: style) {
     let stops = ShapeSource(identifier: "stops") { MLNPointFeature(coordinate: stop) }
     CircleStyleLayer(identifier: "stops", source: stops).radius(8).color(.systemRed)
 }

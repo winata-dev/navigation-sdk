@@ -5,6 +5,7 @@ import com.remaply.navigation.core.internal.HttpRouteFetcher
 import com.remaply.navigation.core.internal.Json
 import com.remaply.navigation.core.internal.enumByName
 import com.remaply.navigation.core.internal.normalizeDegrees
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
@@ -57,11 +58,49 @@ class HttpErrorTest {
 
     @Test
     fun `other errors keep status and body`() {
-        val error = HttpRouteFetcher.httpError(401, "invalid key")
+        val error = HttpRouteFetcher.httpError(429, "slow down")
         assertTrue(error is NavigationException.Http)
         error as NavigationException.Http
+        assertEquals(429, error.statusCode)
+        assertEquals("slow down", error.body)
+    }
+
+    @Test
+    fun `remaply credential errors name the reason`() {
+        fun reason(code: Int, errorCode: String) =
+            (HttpRouteFetcher.httpError(code, """{"error":{"code":"$errorCode","message":"x"}}""") as NavigationException.Unauthorized).reason
+
+        assertEquals(NavigationException.Unauthorized.Reason.INVALID_API_KEY, reason(401, "invalid_api_key"))
+        assertEquals(NavigationException.Unauthorized.Reason.SCOPE_NOT_ALLOWED, reason(403, "scope_not_allowed"))
+        assertEquals(NavigationException.Unauthorized.Reason.API_KEY_RESTRICTED, reason(403, "api_key_restricted"))
+    }
+
+    @Test
+    fun `other 401s are unauthorized with an unknown reason`() {
+        val error = HttpRouteFetcher.httpError(401, "")
+        assertTrue(error is NavigationException.Unauthorized)
+        error as NavigationException.Unauthorized
+        assertEquals(NavigationException.Unauthorized.Reason.UNKNOWN, error.reason)
         assertEquals(401, error.statusCode)
-        assertEquals("invalid key", error.body)
+        assertNull(error.body)
+    }
+
+    @Test
+    fun `a missing key fails without a request`() = runTest {
+        val fetcher = HttpRouteFetcher(client = null, headers = emptyMap(), missingApiKey = true) {
+            throw AssertionError("must not build a request")
+        }
+        val request = RouteRequest(
+            origin = UserLocation(Coordinate(-18.14, 178.44), horizontalAccuracyMeters = 5.0),
+            waypoints = listOf(Waypoint(Coordinate(-18.12, 178.45))),
+            profile = TravelProfile.CAR,
+            isReroute = false,
+        )
+        val error = runCatching { fetcher.fetch(request) }.exceptionOrNull()
+        assertTrue(error is NavigationException.Unauthorized)
+        error as NavigationException.Unauthorized
+        assertEquals(NavigationException.Unauthorized.Reason.MISSING_API_KEY, error.reason)
+        assertNull(error.statusCode)
     }
 }
 
@@ -108,5 +147,22 @@ class MappingTest {
     fun `certificate fingerprint is upper case with colons`() {
         val sha1 = AppIdentity.sha1Hex("abc".toByteArray())
         assertEquals("A9:99:3E:36:47:06:81:6A:BA:3E:25:71:78:50:C2:6C:9C:D0:D8:9D", sha1)
+    }
+}
+
+class StyleUrlTest {
+    @Test
+    fun `style urls point at the styles endpoint`() {
+        assertEquals(
+            "https://api.remaply.com/v1/styles/default.json",
+            RemaplyCredentials.styleUrl(RemaplyCredentials.DEFAULT_BASE_URL, RemaplyCredentials.DEFAULT_STYLE_ID),
+        )
+        assertEquals("https://staging.test/v1/styles/abc-123.json", RemaplyCredentials.styleUrl("https://staging.test/", " abc-123 "))
+        assertEquals("https://a.test/v1/styles/my%20style%2Fx.json", RemaplyCredentials.styleUrl("https://a.test", "my style/x"))
+    }
+
+    @Test
+    fun `a blank style id is rejected`() {
+        assertThrows(IllegalArgumentException::class.java) { RemaplyCredentials.styleUrl("https://a.test", " ") }
     }
 }

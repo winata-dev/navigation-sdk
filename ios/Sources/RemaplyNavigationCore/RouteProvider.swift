@@ -54,6 +54,10 @@ public struct ValhallaRouteProvider: RouteProvider {
         }
     }
 
+    private init(fetcher: HTTPRouteFetcher) {
+        self.fetcher = fetcher
+    }
+
     public func routes(for request: RouteRequest) async throws -> [NavigationRoute] {
         try await fetcher.fetch(request)
     }
@@ -69,29 +73,41 @@ public struct ValhallaRouteProvider: RouteProvider {
         }
     }
 
-    /// Routes from the Remaply Platform API (`POST /v1/navigation/route`).
+    /// Routes from the Remaply Platform API (`POST /v1/navigation/route`), with the key and app
+    /// identity from `credentials`. Pass the same credentials to the map
+    /// (`MapStyle.remaply(_:styleID:)` in RemaplyNavigationUI) for the Remaply map.
     ///
-    /// Sends the key in `X-Api-Key`, plus the app's bundle identifier, so keys restricted to your
-    /// iOS app work.
+    /// If the server has no navigation endpoint (404 `not_found`), routes come from `GET /v1/route`
+    /// instead, converted on the device, and the navigation endpoint is tried again every 15
+    /// minutes. Those routes have English instructions written from the route's steps, no speed
+    /// limits, and rerouting does not know the direction of travel.
+    ///
+    /// If the key is blank, every request fails with ``NavigationError/unauthorized(_:statusCode:body:)``
+    /// (``NavigationError/AuthFailure/missingAPIKey``) without reaching the server.
+    public static func remaply(_ credentials: RemaplyCredentials, session: URLSession = .shared) -> ValhallaRouteProvider {
+        let endpointURL = credentials.baseURL.appendingPathComponent("v1/navigation/route")
+        return ValhallaRouteProvider(fetcher: HTTPRouteFetcher(
+            session: session,
+            headers: credentials.requestHeaders,
+            missingAPIKey: !credentials.hasAPIKey,
+            fallback: RemaplyRouteFallback(baseURL: credentials.baseURL)
+        ) { profile in
+            .valhalla(endpointUrl: endpointURL.absoluteString, profile: defaultCosting(profile), optionsJson: nil)
+        })
+    }
+
+    /// Routes from the Remaply Platform API. Shorthand for
+    /// `remaply(RemaplyCredentials(apiKey: apiKey, baseURL: baseURL), session: session)`.
     ///
     /// - Parameters:
-    ///   - apiKey: A key with the `routing` scope.
+    ///   - apiKey: A publishable key (`rmp_pk_…`) with the `routing` scope.
     ///   - baseURL: The API's base URL.
     public static func remaply(
         apiKey: String,
-        baseURL: URL = URL(string: "https://api.remaply.com")!,
+        baseURL: URL = RemaplyCredentials.defaultBaseURL,
         session: URLSession = .shared
     ) -> ValhallaRouteProvider {
-        precondition(!apiKey.trimmingCharacters(in: .whitespaces).isEmpty, "apiKey must not be blank")
-        var headers = ["X-Api-Key": apiKey]
-        if let bundleID = Bundle.main.bundleIdentifier {
-            headers["X-Ios-Bundle-Identifier"] = bundleID
-        }
-        return ValhallaRouteProvider(
-            endpointURL: baseURL.appendingPathComponent("v1/navigation/route"),
-            headers: headers,
-            session: session
-        )
+        remaply(RemaplyCredentials(apiKey: apiKey, baseURL: baseURL), session: session)
     }
 }
 
@@ -154,13 +170,26 @@ enum JSONOptions {
 final class HTTPRouteFetcher: @unchecked Sendable {
     private let session: URLSession
     private let headers: [String: String]
+    private let missingAPIKey: Bool
+    private let fallback: RemaplyRouteFallback?
     private let providerFor: @Sendable (TravelProfile) -> WellKnownRouteProvider
     private let lock = NSLock()
     private var adapters: [TravelProfile: RouteAdapter] = [:]
 
-    init(session: URLSession, headers: [String: String], providerFor: @escaping @Sendable (TravelProfile) -> WellKnownRouteProvider) {
+    /// - Parameters:
+    ///   - missingAPIKey: When true, every fetch fails with `.unauthorized` without a request.
+    ///   - fallback: Used when the server has no navigation endpoint. Remaply API only.
+    init(
+        session: URLSession,
+        headers: [String: String],
+        missingAPIKey: Bool = false,
+        fallback: RemaplyRouteFallback? = nil,
+        providerFor: @escaping @Sendable (TravelProfile) -> WellKnownRouteProvider
+    ) {
         self.session = session
         self.headers = headers
+        self.missingAPIKey = missingAPIKey
+        self.fallback = fallback
         self.providerFor = providerFor
     }
 
@@ -178,29 +207,13 @@ final class HTTPRouteFetcher: @unchecked Sendable {
     }
 
     func fetch(_ request: RouteRequest) async throws -> [NavigationRoute] {
+        if missingAPIKey { throw NavigationError.unauthorized(.missingAPIKey, statusCode: nil, body: nil) }
         let adapter = try adapter(for: request.profile)
-
-        let engineRequest: FerrostarCoreFFI.RouteRequest
-        do {
-            engineRequest = try adapter.generateRequest(
-                userLocation: request.origin.engineLocation,
-                waypoints: request.waypoints.map(\.engineWaypoint)
-            )
-        } catch {
-            throw NavigationError.illegalUse("Could not build the route request: \(error)")
-        }
-
-        let (data, response): (Data, URLResponse)
-        do {
-            (data, response) = try await session.data(for: urlRequest(engineRequest))
-        } catch let error as NavigationError {
-            throw error
-        } catch {
-            throw NavigationError.network(underlying: error.localizedDescription)
-        }
-
-        if let http = response as? HTTPURLResponse, !(200 ..< 300).contains(http.statusCode) {
-            throw Self.httpError(statusCode: http.statusCode, body: String(data: data, encoding: .utf8) ?? "")
+        let data: Data
+        if let fallback, fallback.isActive() {
+            data = try await fetchFallback(fallback, request)
+        } else {
+            data = try await fetchEngine(adapter, request)
         }
 
         let routes: [FerrostarCoreFFI.Route]
@@ -212,6 +225,57 @@ final class HTTPRouteFetcher: @unchecked Sendable {
         }
         guard !routes.isEmpty else { throw NavigationError.noRouteFound }
         return routes.map { NavigationRoute(engineRoute: $0) }
+    }
+
+    /// The request the engine builds for the configured server, e.g. Valhalla's POST /route.
+    private func fetchEngine(_ adapter: RouteAdapter, _ request: RouteRequest) async throws -> Data {
+        let engineRequest: FerrostarCoreFFI.RouteRequest
+        do {
+            engineRequest = try adapter.generateRequest(
+                userLocation: request.origin.engineLocation,
+                waypoints: request.waypoints.map(\.engineWaypoint)
+            )
+        } catch {
+            throw NavigationError.illegalUse("Could not build the route request: \(error)")
+        }
+        let (statusCode, data) = try await send(urlRequest(engineRequest))
+        if (200 ..< 300).contains(statusCode) { return data }
+        let body = String(data: data, encoding: .utf8) ?? ""
+        if let fallback, RemaplyRouteFallback.isMissingEndpoint(statusCode: statusCode, body: body) {
+            fallback.activate()
+            return try await fetchFallback(fallback, request)
+        }
+        throw Self.httpError(statusCode: statusCode, body: body)
+    }
+
+    /// GET /v1/route, turned into an OSRM response.
+    private func fetchFallback(_ fallback: RemaplyRouteFallback, _ request: RouteRequest) async throws -> Data {
+        guard let url = fallback.url(for: request) else {
+            throw NavigationError.illegalUse("Could not build the route request: invalid Remaply base URL")
+        }
+        var urlRequest = URLRequest(url: url)
+        urlRequest.timeoutInterval = 20
+        for (name, value) in headers {
+            urlRequest.setValue(value, forHTTPHeaderField: name)
+        }
+        let (statusCode, data) = try await send(urlRequest)
+        guard (200 ..< 300).contains(statusCode) else {
+            throw Self.httpError(statusCode: statusCode, body: String(data: data, encoding: .utf8) ?? "")
+        }
+        do {
+            return try fallback.osrmResponse(data, for: request)
+        } catch {
+            throw NavigationError.invalidResponse("Could not read the route response: \(error)")
+        }
+    }
+
+    private func send(_ request: URLRequest) async throws -> (Int, Data) {
+        do {
+            let (data, response) = try await session.data(for: request)
+            return ((response as? HTTPURLResponse)?.statusCode ?? 200, data)
+        } catch {
+            throw NavigationError.network(underlying: error.localizedDescription)
+        }
     }
 
     private func urlRequest(_ request: FerrostarCoreFFI.RouteRequest) throws -> URLRequest {
@@ -237,11 +301,24 @@ final class HTTPRouteFetcher: @unchecked Sendable {
         return urlRequest
     }
 
-    /// Both Valhalla's `NoRoute` (HTTP 400) and the Remaply API's `route_not_found` (404) mean the same.
+    /// Both Valhalla's `NoRoute` (HTTP 400) and the Remaply API's `route_not_found` (404) mean the
+    /// same. 401 and 403 are credential errors; the Remaply API names the reason in
+    /// `{"error": {"code": …}}`.
     static func httpError(statusCode: Int, body: String) -> NavigationError {
         if body.contains("route_not_found") || body.contains("\"NoRoute\"") {
             return .noRouteFound
         }
-        return .http(statusCode: statusCode, body: body.isEmpty ? nil : body)
+        let bodyOrNil = body.isEmpty ? nil : body
+        if statusCode == 401 || statusCode == 403 {
+            return .unauthorized(authFailure(body), statusCode: statusCode, body: bodyOrNil)
+        }
+        return .http(statusCode: statusCode, body: bodyOrNil)
+    }
+
+    private static func authFailure(_ body: String) -> NavigationError.AuthFailure {
+        if body.contains("\"invalid_api_key\"") { return .invalidAPIKey }
+        if body.contains("\"scope_not_allowed\"") { return .scopeNotAllowed }
+        if body.contains("\"api_key_restricted\"") { return .apiKeyRestricted }
+        return .unknown
     }
 }

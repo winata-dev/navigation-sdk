@@ -8,7 +8,10 @@ struct ContentView: View {
     var body: some View {
         switch navigator.state.status {
         case .navigating, .arrived:
-            RemaplyNavigationView(navigator: navigator, styleURL: ExampleConfig.styleURL)
+            RemaplyNavigationView(
+                navigator: navigator,
+                style: ExampleConfig.mapStyle
+            )
                 .ignoresSafeArea()
         case .idle, .routing:
             TripForm(navigator: navigator)
@@ -35,7 +38,7 @@ private struct TripForm: View {
                     }
                     TextField("Destination (lat, lon)", text: $destination)
                 } footer: {
-                    Text(ExampleConfig.remaplyAPIKey.isEmpty ? "Routes: \(ExampleConfig.valhallaURL.absoluteString)" : "Routes: Remaply API")
+                    Text(ExampleConfig.remaplyAPIKey.isEmpty ? "Routes: \(ExampleConfig.valhallaURL.absoluteString)" : "Routes and map: Remaply API")
                 }
 
                 Section {

@@ -3,7 +3,8 @@
 This guide adds turn-by-turn navigation to an existing SwiftUI app. It takes about 15 minutes.
 
 **You need:** Xcode 16 or newer, an app targeting iOS 16 or higher, a routing server URL (see
-[Configuration › Routing servers](configuration.md#routing-servers)), and a MapLibre style URL.
+[Configuration › Routing servers](configuration.md#routing-servers)) and a MapLibre style URL, or
+just a Remaply API key, which covers both.
 
 ## 1. Add the package
 
@@ -57,11 +58,14 @@ import RemaplyNavigationCore
 import RemaplyNavigationUI
 import SwiftUI
 
+// Only with the Remaply API. Read the key from your build configuration, not from source.
+// let credentials = RemaplyCredentials(apiKey: remaplyAPIKey)
+
 struct NavigationScreen: View {
     @StateObject private var navigator = RemaplyNavigator(config: NavigatorConfig(
         routeProvider: ValhallaRouteProvider(endpointURL: URL(string: "https://valhalla.example.com/route")!)
-        // Or, with the Remaply API:
-        // routeProvider: ValhallaRouteProvider.remaply(apiKey: "rmp_pk_...")
+        // Or, with the Remaply API (pass the same credentials to the map, below):
+        // routeProvider: ValhallaRouteProvider.remaply(credentials)
     ))
     @State private var error: String?
 
@@ -70,7 +74,9 @@ struct NavigationScreen: View {
         case .navigating, .arrived:
             RemaplyNavigationView(
                 navigator: navigator,
-                styleURL: URL(string: "https://tiles.openfreemap.org/styles/liberty")!
+                style: MapStyle(url: URL(string: "https://tiles.openfreemap.org/styles/liberty")!)
+                // Or the Remaply map, with the key on the style, tiles and sprites:
+                // style: .remaply(credentials)
             )
             .ignoresSafeArea()
         case .idle, .routing:

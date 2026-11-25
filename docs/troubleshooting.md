@@ -7,10 +7,29 @@ The points are not connected by roads for this profile: a point at sea, an islan
 ferry in the data, or a footpath-only place with the car profile. Try another profile or a point
 on a road.
 
-**`Http` 401 or 403**
-The API key is wrong, lacks the routing scope, or is restricted to another app. For the Remaply
-API, check that the key's Android package and SHA-1 (or iOS bundle ID) match the app, and
-remember that debug and release builds are usually signed with different keys.
+**`Unauthorized` (401 or 403)**
+The error's `reason` says why:
+
+- `MISSING_API_KEY` / `.missingAPIKey`: the key is blank, usually missing from this build's
+  configuration. No request was sent.
+- `INVALID_API_KEY` / `.invalidAPIKey`: wrong, revoked or expired key.
+- `SCOPE_NOT_ALLOWED` / `.scopeNotAllowed`: the key lacks the `routing` scope.
+- `API_KEY_RESTRICTED` / `.apiKeyRestricted`: the key is restricted to another app. Check that
+  its Android package and SHA-1 (or iOS bundle ID) match the app. Debug and release builds are
+  usually signed with different keys, and Play Store builds are signed with Play's app signing
+  key, not your upload key.
+- `UNKNOWN` / `.unknown`: another provider's 401 or 403. Read `body`.
+
+**With the Remaply API, there are no speed limits and instructions are always in English**
+The server has no `/v1/navigation/route`, so routes come from `/v1/route`, converted on the
+device. See [When the server has no navigation endpoint](configuration.md#when-the-server-has-no-navigation-endpoint).
+
+**The map is blank, or roads, labels or icons are missing, with the Remaply map**
+The style, tiles and sprites need the key too. Pass `style = MapStyle.remaply(credentials)` /
+`style: .remaply(credentials)` to the view, rather than the style URL alone, and allow the key to
+use styles and tiles. With a style of your own that uses Remaply tiles, pass
+`MapAuthentication.remaply(credentials)` in its `MapStyle`. See
+[The Remaply map](ui-customization.md#the-remaply-map).
 
 **The map is blank**
 The style URL is unreachable or not a MapLibre style (Mapbox `mapbox://` styles do not work).

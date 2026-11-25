@@ -7,9 +7,9 @@ plugins {
 }
 
 // Optional settings in android/local.properties (not committed):
+//   sample.remaplyApiKey=rmp_pk_...       use the Remaply API for routes and the map; overrides the two below
 //   sample.styleUrl=https://...           a MapLibre style; defaults to OpenFreeMap (free, no key)
 //   sample.valhallaUrl=https://.../route  any Valhalla server; defaults to the public FOSSGIS demo server
-//   sample.remaplyApiKey=rmp_pk_...       use the Remaply API instead of plain Valhalla
 val localProperties = Properties().apply {
     rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use(::load)
 }

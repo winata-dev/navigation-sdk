@@ -31,12 +31,19 @@ import uniffi.ferrostar.RouteRequest as EngineRequest
 internal class HttpRouteFetcher(
     client: OkHttpClient?,
     private val headers: Map<String, String>,
+    /** When true, every fetch fails with [NavigationException.Unauthorized] without a request. */
+    private val missingApiKey: Boolean = false,
+    /** Used when the server has no navigation endpoint. Remaply API only. */
+    private val fallback: RemaplyRouteFallback? = null,
     private val providerFor: (TravelProfile) -> WellKnownRouteProvider,
 ) {
     private val client: OkHttpClient = client ?: defaultClient
     private val adapters = ConcurrentHashMap<TravelProfile, RouteAdapter>()
 
     suspend fun fetch(request: RouteRequest): List<NavigationRoute> = withContext(Dispatchers.IO) {
+        if (missingApiKey) {
+            throw NavigationException.Unauthorized(NavigationException.Unauthorized.Reason.MISSING_API_KEY, null, null)
+        }
         val adapter = adapters.getOrPut(request.profile) {
             try {
                 RouteAdapter.fromWellKnownRouteProvider(providerFor(request.profile))
@@ -45,22 +52,7 @@ internal class HttpRouteFetcher(
             }
         }
 
-        val engineRequest = try {
-            adapter.generateRequest(request.origin.toFerrostar(), request.waypoints.map { it.toFerrostar() })
-        } catch (e: Exception) {
-            throw NavigationException.IllegalUse("Could not build the route request: ${e.message}")
-        }
-
-        val response = try {
-            client.newCall(engineRequest.toOkHttp(headers)).await()
-        } catch (e: IOException) {
-            throw NavigationException.Network(e)
-        }
-
-        val body = response.use { it.body.bytes() }
-        if (!response.isSuccessful) {
-            throw httpError(response.code, body.decodeToString())
-        }
+        val body = if (fallback?.isActive() == true) fetchFallback(fallback, request) else fetchEngine(adapter, request)
 
         val routes = try {
             adapter.parseResponse(body)
@@ -73,6 +65,49 @@ internal class HttpRouteFetcher(
         routes.map(::NavigationRoute)
     }
 
+    /** The request the engine builds for the configured server, e.g. Valhalla's POST /route. */
+    private suspend fun fetchEngine(adapter: RouteAdapter, request: RouteRequest): ByteArray {
+        val engineRequest = try {
+            adapter.generateRequest(request.origin.toFerrostar(), request.waypoints.map { it.toFerrostar() })
+        } catch (e: Exception) {
+            throw NavigationException.IllegalUse("Could not build the route request: ${e.message}")
+        }
+        val (code, body) = send(engineRequest.toOkHttp(headers))
+        if (code in 200..299) return body
+        val text = body.decodeToString()
+        if (fallback != null && RemaplyRouteFallback.isMissingEndpoint(code, text)) {
+            fallback.activate()
+            return fetchFallback(fallback, request)
+        }
+        throw httpError(code, text)
+    }
+
+    /** GET /v1/route, turned into an OSRM response. */
+    private suspend fun fetchFallback(fallback: RemaplyRouteFallback, request: RouteRequest): ByteArray {
+        val url = try {
+            fallback.url(request)
+        } catch (e: IllegalArgumentException) {
+            throw NavigationException.IllegalUse("Could not build the route request: ${e.message}")
+        }
+        val (code, body) = send(Request.Builder().url(url).get().apply { headers.forEach { (k, v) -> header(k, v) } }.build())
+        val text = body.decodeToString()
+        if (code !in 200..299) throw httpError(code, text)
+        return try {
+            fallback.toOsrm(text, request)
+        } catch (e: Exception) {
+            throw NavigationException.InvalidResponse("Could not read the route response: ${e.message}", e)
+        }
+    }
+
+    private suspend fun send(request: Request): Pair<Int, ByteArray> {
+        val response = try {
+            client.newCall(request).await()
+        } catch (e: IOException) {
+            throw NavigationException.Network(e)
+        }
+        return response.use { it.code to it.body.bytes() }
+    }
+
     companion object {
         private val defaultClient: OkHttpClient by lazy {
             OkHttpClient.Builder()
@@ -81,13 +116,28 @@ internal class HttpRouteFetcher(
                 .build()
         }
 
-        /** Both Valhalla's `NoRoute` (HTTP 400) and the Remaply API's `route_not_found` (404) mean the same. */
-        internal fun httpError(code: Int, body: String): NavigationException =
+        /**
+         * Both Valhalla's `NoRoute` (HTTP 400) and the Remaply API's `route_not_found` (404) mean
+         * the same. 401 and 403 are credential errors; the Remaply API names the reason in
+         * `{"error": {"code": ...}}`.
+         */
+        internal fun httpError(code: Int, body: String): NavigationException {
             if (body.contains("route_not_found") || body.contains("\"NoRoute\"")) {
-                NavigationException.NoRouteFound()
-            } else {
-                NavigationException.Http(code, body.ifBlank { null })
+                return NavigationException.NoRouteFound()
             }
+            val bodyOrNull = body.ifBlank { null }
+            if (code == 401 || code == 403) {
+                return NavigationException.Unauthorized(authReason(body), code, bodyOrNull)
+            }
+            return NavigationException.Http(code, bodyOrNull)
+        }
+
+        private fun authReason(body: String): NavigationException.Unauthorized.Reason = when {
+            body.contains("\"invalid_api_key\"") -> NavigationException.Unauthorized.Reason.INVALID_API_KEY
+            body.contains("\"scope_not_allowed\"") -> NavigationException.Unauthorized.Reason.SCOPE_NOT_ALLOWED
+            body.contains("\"api_key_restricted\"") -> NavigationException.Unauthorized.Reason.API_KEY_RESTRICTED
+            else -> NavigationException.Unauthorized.Reason.UNKNOWN
+        }
     }
 }
 

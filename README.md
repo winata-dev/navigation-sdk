@@ -26,6 +26,23 @@ try await navigator.navigate(to: [Waypoint(latitude: -18.1250, longitude: 178.45
 RemaplyNavigationView(navigator: navigator, styleURL: URL(string: "https://tiles.openfreemap.org/styles/liberty")!)
 ```
 
+With the [Remaply API](https://api.remaply.com), one key covers both the routes and the map
+(style, tiles and sprites):
+
+```kotlin
+// Android
+val remaply = RemaplyCredentials(context, apiKey = BuildConfig.REMAPLY_API_KEY)
+val navigator = RemaplyNavigator(context, NavigatorConfig(routeProvider = ValhallaRouteProvider.remaply(remaply)))
+RemaplyNavigationView(navigator, style = MapStyle.remaply(remaply))
+```
+
+```swift
+// iOS
+let remaply = RemaplyCredentials(apiKey: remaplyAPIKey)
+let navigator = RemaplyNavigator(config: NavigatorConfig(routeProvider: ValhallaRouteProvider.remaply(remaply)))
+RemaplyNavigationView(navigator: navigator, style: .remaply(remaply))
+```
+
 ## What's included
 
 | | |
@@ -33,7 +50,7 @@ RemaplyNavigationView(navigator: navigator, styleURL: URL(string: "https://tiles
 | **Navigation Core** | Route requests, GPS tracking with route snapping, step-by-step progress, distance and time remaining, off-route detection and automatic rerouting, multi-stop trips, spoken instructions, speed limits, background navigation, simulated drives, a state stream and events |
 | **Navigation UI** | A full-screen navigation view: map with route and position puck, maneuver banner, distance/ETA/arrival bar, speed limit sign, mute/zoom/recenter/exit buttons, rerouting banner, arrival card. Portrait and landscape, light and dark |
 | **Routing backends** | Any Valhalla server (self-hosted, Stadia Maps, the Remaply API), GraphHopper, or your own `RouteProvider` |
-| **Maps** | Any MapLibre style URL: OpenFreeMap, MapTiler, Stadia Maps, Protomaps, your own tiles |
+| **Maps** | The Remaply map with just an API key, or any MapLibre style URL: OpenFreeMap, MapTiler, Stadia Maps, Protomaps, your own tiles |
 
 Everything is Apache-2.0 / BSD licensed. There are no per-user fees or SDK keys. You only need
 a routing server and map tiles, both of which can be free or self-hosted.
